@@ -1,9 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:screenshot/screenshot.dart';
-import 'dart:ui' as ui;
-import 'dart:typed_data';
-import 'package:path_provider/path_provider.dart';
-import 'dart:io';
+import 'dart:async';
 
 // environment:
 //   sdk: ">2.12.0 <3.7.0"
@@ -32,327 +28,241 @@ import 'dart:io';
 //   nike:
 //     git: "https://github.com/SKaushikAK/Nike.git"
 
-// Shape Types
-enum ShapeType { point, line, rectangle, circle }
 
-// Shape Class
-class Shape {
-  final ShapeType type;
-  Offset? start;
-  Offset? end;
-  Color color;
-  double strokeWidth;
-
-  Shape({
-    required this.type,
-    this.start,
-    this.end,
-    this.color = Colors.black,
-    this.strokeWidth = 2.0,
-  });
-
-  void draw(Canvas canvas, Paint paint) {
-    paint.color = color;
-    paint.strokeWidth = strokeWidth;
-
-    switch (type) {
-      case ShapeType.point:
-        if (start != null) {
-          canvas.drawCircle(start!, strokeWidth / 2, paint);
-        }
-        break;
-      case ShapeType.line:
-        if (start != null && end != null) {
-          canvas.drawLine(start!, end!, paint);
-        }
-        break;
-      case ShapeType.rectangle:
-        if (start != null && end != null) {
-          Rect rect = Rect.fromPoints(start!, end!);
-          canvas.drawRect(rect, paint);
-        }
-        break;
-      case ShapeType.circle:
-        if (start != null && end != null) {
-          double radius = (end! - start!).distance / 2;
-          canvas.drawCircle(
-              Offset((start!.dx + end!.dx) / 2, (start!.dy + end!.dy) / 2),
-              radius,
-              paint);
-        }
-        break;
-    }
-  }
-
-  bool contains(Offset point) {
-    if (start == null || end == null) return false;
-    Rect rect = Rect.fromPoints(start!, end!);
-    return rect.contains(point);
-  }
-}
-
-// Main Application
 void main() {
-  runApp(const DrawingApp());
+  runApp(const CatchGame());
 }
 
-class DrawingApp extends StatelessWidget {
-  const DrawingApp({super.key});
+
+
+class CatchGame extends StatelessWidget {
+  const CatchGame({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Interactive Drawing App',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-      ),
-      home: const DrawingCanvas(),
+    return const MaterialApp(
       debugShowCheckedModeBanner: false,
+      home: GameScreen(),
     );
   }
 }
 
-// Drawing Canvas Widget
-class DrawingCanvas extends StatefulWidget {
-  const DrawingCanvas({super.key});
+class GameScreen extends StatefulWidget {
+  const GameScreen({super.key});
 
   @override
-  State<DrawingCanvas> createState() => _DrawingCanvasState();
+  State<GameScreen> createState() => _GameScreenState();
 }
 
-class _DrawingCanvasState extends State<DrawingCanvas> {
-  List<Shape> shapes = [];
-  ShapeType selectedShapeType = ShapeType.line;
-  Color selectedColor = Colors.black;
-  double strokeWidth = 2.0;
-  Shape? currentShape;
-  bool isDragging = false;
-  Offset? dragStart;
-  ScreenshotController screenshotController = ScreenshotController();
+class _GameScreenState extends State<GameScreen> {
+  // Ball variables
+  double ballX = 0;
+  double ballY = -1;
+  double ballSize = 40;
+  double ballSpeedX = 0.02; // Horizontal speed
+  double ballSpeedY = 0.02; // Vertical speed
+  bool movingDown = true; // Ball moving down
 
-  void startDrawing(Offset start) {
-    currentShape = Shape(
-      type: selectedShapeType,
-      start: start,
-      end: start,
-      color: selectedColor,
-      strokeWidth: strokeWidth,
-    );
+  // Basket variables
+  double basketX = 0;
+  double basketWidth = 100;
+
+  // Game variables
+  int score = 0;
+  int lives = 3;
+  bool gameHasStarted = false;
+  Timer? gameTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    resetGame();
   }
 
-  void updateDrawing(Offset end) {
-    if (currentShape != null) {
+  // Start the game
+  void startGame() {
+    gameHasStarted = true;
+    gameTimer = Timer.periodic(const Duration(milliseconds: 30), (timer) {
       setState(() {
-        currentShape!.end = end;
+        moveBall();
+        checkCollision();
       });
-    }
-  }
-
-  void endDrawing() {
-    if (currentShape != null) {
-      setState(() {
-        shapes.add(currentShape!);
-        currentShape = null;
-      });
-    }
-  }
-
-  void deleteShape(Offset point) {
-    setState(() {
-      shapes.removeWhere((shape) => shape.contains(point));
     });
   }
 
-  void exportDrawing() async {
-    final directory = await getApplicationDocumentsDirectory();
-    String filePath = '${directory.path}/drawing.png';
+  // Reset the game
+  void resetGame() {
+    setState(() {
+      ballX = 0;
+      ballY = -1;
+      ballSpeedY = 0.02;
+      score = 0;
+      lives = 3;
+      gameHasStarted = false;
+    });
+  }
 
-    screenshotController.capture().then((Uint8List? image) async {
-      if (image != null) {
-        final file = File(filePath);
-        await file.writeAsBytes(image);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Drawing saved at $filePath')),
+  // Move the ball with bouncing logic
+  void moveBall() {
+    // Move horizontally
+    ballX += ballSpeedX;
+
+    // Bounce off left or right walls
+    if (ballX <= -1 || ballX >= 1) {
+      ballSpeedX *= -1; // Reverse direction
+    }
+
+    // Move vertically
+    if (movingDown) {
+      ballY += ballSpeedY;
+    } else {
+      ballY -= ballSpeedY;
+    }
+
+    // Ball hits bottom - bounce back
+    if (ballY > 0.95) {
+      if (ballX >= basketX - basketWidth / 200 &&
+          ballX <= basketX + basketWidth / 200) {
+        score += 1; // Ball caught, increase score
+      } else {
+        lives -= 1; // Missed the ball
+        if (lives == 0) {
+          gameOver();
+          return;
+        }
+      }
+      movingDown = false; // Bounce upward after hitting bottom
+    }
+
+    // Ball hits top - change direction
+    if (ballY < -1) {
+      movingDown = true; // Start moving down again
+    }
+  }
+
+  // Check if ball goes beyond limits
+  void checkCollision() {
+    if (lives == 0) {
+      gameOver();
+    }
+  }
+
+  // Game over - show dialog
+  void gameOver() {
+    gameTimer?.cancel();
+    gameHasStarted = false;
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text("Game Over"),
+          content: Text("Score: $score"),
+          actions: [
+            TextButton(
+              onPressed: () {
+                resetGame();
+                Navigator.pop(context);
+              },
+              child: const Text("Restart"),
+            ),
+          ],
         );
+      },
+    );
+  }
+
+  // Move basket horizontally on drag
+  void moveBasket(DragUpdateDetails details) {
+    setState(() {
+      double dragX = details.delta.dx / MediaQuery.of(context).size.width;
+      basketX += dragX * 2;
+
+      // Keep basket within boundaries
+      if (basketX < -1) {
+        basketX = -1;
+      } else if (basketX > 1) {
+        basketX = 1;
       }
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Interactive Drawing App'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.delete),
-            onPressed: () => setState(() {
-              shapes.clear();
-            }),
-          ),
-          IconButton(
-            icon: const Icon(Icons.save),
-            onPressed: exportDrawing,
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          buildToolbar(),
-          Expanded(
-            child: Screenshot(
-              controller: screenshotController,
-              child: GestureDetector(
-                onPanStart: (details) {
-                  startDrawing(details.localPosition);
-                },
-                onPanUpdate: (details) {
-                  updateDrawing(details.localPosition);
-                },
-                onPanEnd: (_) {
-                  endDrawing();
-                },
-                onDoubleTapDown: (details) {
-                  deleteShape(details.localPosition);
-                },
-                child: CustomPaint(
-                  painter: ShapePainter(shapes, currentShape),
-                  child: Container(
-                    color: Colors.white,
-                    width: double.infinity,
-                    height: double.infinity,
+    return GestureDetector(
+      onTap: () {
+        if (!gameHasStarted) {
+          startGame(); // Start the game on initial tap
+        }
+      },
+      onHorizontalDragUpdate: moveBasket, // Move basket on drag
+      child: Scaffold(
+        backgroundColor: Colors.blue[200],
+        body: Column(
+          children: [
+            // Game Area
+            Expanded(
+              flex: 4,
+              child: Stack(
+                children: [
+                  // Ball
+                  AnimatedContainer(
+                    alignment: Alignment(ballX, ballY),
+                    duration: const Duration(milliseconds: 0),
+                    child: Container(
+                      width: ballSize,
+                      height: ballSize,
+                      decoration: const BoxDecoration(
+                        color: Colors.red,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
                   ),
+                  // Basket
+                  Container(
+                    alignment: Alignment(basketX, 1),
+                    child: Container(
+                      width: basketWidth,
+                      height: 20,
+                      decoration: BoxDecoration(
+                        color: Colors.orange,
+                        borderRadius: BorderRadius.circular(5),
+                      ),
+                    ),
+                  ),
+                  // Tap to Start Message
+                  gameHasStarted
+                      ? const SizedBox.shrink()
+                      : const Center(
+                          child: Text(
+                            "TAP TO START",
+                            style: TextStyle(fontSize: 24, color: Colors.white),
+                          ),
+                        ),
+                ],
+              ),
+            ),
+            // Bottom UI
+            Expanded(
+              child: Container(
+                color: Colors.brown[300],
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    Text(
+                      "Score: $score",
+                      style: const TextStyle(fontSize: 24, color: Colors.white),
+                    ),
+                    Text(
+                      "Lives: $lives",
+                      style: const TextStyle(fontSize: 24, color: Colors.white),
+                    ),
+                  ],
                 ),
               ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget buildToolbar() {
-    return Container(
-      color: Colors.grey[200],
-      padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          buildShapeSelector(),
-          buildColorPicker(),
-          buildStrokeWidthSlider(),
-        ],
-      ),
-    );
-  }
-
-  Widget buildShapeSelector() {
-    return DropdownButton<ShapeType>(
-      value: selectedShapeType,
-      items: const [
-        DropdownMenuItem(
-          value: ShapeType.point,
-          child: Text('Point'),
-        ),
-        DropdownMenuItem(
-          value: ShapeType.line,
-          child: Text('Line'),
-        ),
-        DropdownMenuItem(
-          value: ShapeType.rectangle,
-          child: Text('Rectangle'),
-        ),
-        DropdownMenuItem(
-          value: ShapeType.circle,
-          child: Text('Circle'),
-        ),
-      ],
-      onChanged: (value) {
-        if (value != null) {
-          setState(() {
-            selectedShapeType = value;
-          });
-        }
-      },
-    );
-  }
-
-  Widget buildColorPicker() {
-    return Row(
-      children: [
-        buildColorButton(Colors.black),
-        buildColorButton(Colors.red),
-        buildColorButton(Colors.green),
-        buildColorButton(Colors.blue),
-      ],
-    );
-  }
-
-  Widget buildColorButton(Color color) {
-    return GestureDetector(
-      onTap: () {
-        setState(() {
-          selectedColor = color;
-        });
-      },
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 4.0),
-        width: 24,
-        height: 24,
-        decoration: BoxDecoration(
-          color: color,
-          shape: BoxShape.circle,
-          border: selectedColor == color
-              ? Border.all(color: Colors.grey, width: 2.0)
-              : null,
+          ],
         ),
       ),
     );
   }
-
-  Widget buildStrokeWidthSlider() {
-    return SizedBox(
-      width: 120,
-      child: Row(
-        children: [
-          const Icon(Icons.brush),
-          Expanded(
-            child: Slider(
-              value: strokeWidth,
-              min: 1.0,
-              max: 10.0,
-              onChanged: (value) {
-                setState(() {
-                  strokeWidth = value;
-                });
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// Shape Painter Class
-class ShapePainter extends CustomPainter {
-  final List<Shape> shapes;
-  final Shape? currentShape;
-
-  ShapePainter(this.shapes, this.currentShape);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    Paint paint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
-
-    for (var shape in shapes) {
-      shape.draw(canvas, paint);
-    }
-    currentShape?.draw(canvas, paint);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }
