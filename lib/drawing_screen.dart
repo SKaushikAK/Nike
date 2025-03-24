@@ -3,7 +3,7 @@ import 'dart:async';
 
 // environment:
 //   sdk: ">2.12.0 <3.7.0"
-//   # > 2.12.0 < 3.7.0 
+//   # > 2.12.0 < 3.7.0
 
 // # Dependencies specify other packages that your package needs in order to work.
 // # To automatically upgrade your package dependencies to the latest versions
@@ -30,17 +30,16 @@ import 'dart:async';
 
 
 void main() {
-  runApp(const CatchGame());
+  runApp(CatchGame());
 }
 
 
 
 class CatchGame extends StatelessWidget {
-  const CatchGame({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return const MaterialApp(
+    return MaterialApp(
       debugShowCheckedModeBanner: false,
       home: GameScreen(),
     );
@@ -48,7 +47,6 @@ class CatchGame extends StatelessWidget {
 }
 
 class GameScreen extends StatefulWidget {
-  const GameScreen({super.key});
 
   @override
   State<GameScreen> createState() => _GameScreenState();
@@ -233,11 +231,11 @@ class _GameScreenState extends State<GameScreen> {
                   gameHasStarted
                       ? const SizedBox.shrink()
                       : const Center(
-                          child: Text(
-                            "TAP TO START",
-                            style: TextStyle(fontSize: 24, color: Colors.white),
-                          ),
-                        ),
+                    child: Text(
+                      "TAP TO START",
+                      style: TextStyle(fontSize: 24, color: Colors.white),
+                    ),
+                  ),
                 ],
               ),
             ),
