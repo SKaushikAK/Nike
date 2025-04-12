@@ -30,7 +30,7 @@ class _MovieCatalogState extends State<MovieCatalog> {
       'rating': 4.5,
       'description': 'A mind-bending thriller by Christopher Nolan.',
       'imageUrl':
-          'https://m.media-amazon.com/images/M/MV5BMjAxMzY3NjcxNF5BMl5BanBnXkFtZTcwNTI5OTM0Mw@@._V1_FMjpg_UX1000_.jpg'
+      'https://m.media-amazon.com/images/M/MV5BMjAxMzY3NjcxNF5BMl5BanBnXkFtZTcwNTI5OTM0Mw@@._V1_FMjpg_UX1000_.jpg'
     },
     {
       'title': 'Interstellar',
@@ -38,7 +38,7 @@ class _MovieCatalogState extends State<MovieCatalog> {
       'rating': 4.8,
       'description': 'A space exploration journey beyond time.',
       'imageUrl':
-          'https://m.media-amazon.com/images/M/MV5BYzdjMDAxZGItMjI2My00ODA1LTlkNzItOWFjMDU5ZDJlYWY3XkEyXkFqcGc@._V1_.jpg'
+      'https://m.media-amazon.com/images/M/MV5BYzdjMDAxZGItMjI2My00ODA1LTlkNzItOWFjMDU5ZDJlYWY3XkEyXkFqcGc@._V1_.jpg'
     },
     {
       'title': 'The Dark Knight',
@@ -46,13 +46,59 @@ class _MovieCatalogState extends State<MovieCatalog> {
       'rating': 4.9,
       'description': 'The legendary Batman faces off against Joker.',
       'imageUrl':
-          'https://image.tmdb.org/t/p/w500/qJ2tW6WMUDux911r6m7haRef0WH.jpg'
+      'https://image.tmdb.org/t/p/w500/qJ2tW6WMUDux911r6m7haRef0WH.jpg'
     },
   ];
 
-  void updateRating(int index, double newRating) {
+  // New properties for search functionality
+  List<Map<String, dynamic>> filteredMovies = [];
+  TextEditingController searchController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    // Initially, filtered movies are the same as all movies
+    filteredMovies = List.from(movies);
+
+    // Add listener to update filtered movies when search text changes
+    searchController.addListener(_filterMovies);
+  }
+
+  @override
+  void dispose() {
+    // Clean up the controller when the widget is disposed
+    searchController.dispose();
+    super.dispose();
+  }
+
+  // Method to filter movies based on search text
+  void _filterMovies() {
+    String searchTerm = searchController.text.toLowerCase();
     setState(() {
-      movies[index]['rating'] = newRating;
+      if (searchTerm.isEmpty) {
+        // If search is empty, show all movies
+        filteredMovies = List.from(movies);
+      } else {
+        // Filter movies by title or genre that contain the search term
+        filteredMovies = movies.where((movie) {
+          return movie['title'].toString().toLowerCase().contains(searchTerm) ||
+              movie['genre'].toString().toLowerCase().contains(searchTerm);
+        }).toList();
+      }
+    });
+  }
+
+  void updateRating(int index, double newRating) {
+    // Find the original movie index from the filtered list
+    final String title = filteredMovies[index]['title'];
+    final originalIndex = movies.indexWhere((movie) => movie['title'] == title);
+
+    setState(() {
+      if (originalIndex != -1) {
+        movies[originalIndex]['rating'] = newRating;
+        // Update the filtered list as well
+        filteredMovies[index]['rating'] = newRating;
+      }
     });
   }
 
@@ -60,47 +106,80 @@ class _MovieCatalogState extends State<MovieCatalog> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text('Movie Catalog')),
-      body: ListView.builder(
-        itemCount: movies.length,
-        itemBuilder: (context, index) {
-          final movie = movies[index];
-          return Card(
-            margin: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            child: ListTile(
-              leading: Image.network(
-                movie['imageUrl'],
-                width: 50,
-                height: 80,
-                fit: BoxFit.cover,
+      body: Column(
+        children: [
+          // Search bar
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: TextField(
+              controller: searchController,
+              decoration: InputDecoration(
+                labelText: 'Search movies',
+                hintText: 'Enter movie title or genre',
+                prefixIcon: Icon(Icons.search),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8.0),
+                ),
+                filled: true,
+                contentPadding: EdgeInsets.symmetric(vertical: 4.0),
               ),
-              title: Text(movie['title']),
-              subtitle: Text("Genre: ${movie['genre']}"),
-              trailing: RatingBarIndicator(
-                rating: movie['rating'],
-                itemBuilder: (context, _) =>
-                    Icon(Icons.star, color: Colors.amber),
-                itemCount: 5,
-                itemSize: 20.0,
-              ),
-              onTap: () async {
-                final updatedRating = await Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => MovieDetail(
-                      movie: movie,
-                      index: index,
-                      currentRating: movie['rating'],
+            ),
+          ),
+          // Movie list
+          Expanded(
+            child: filteredMovies.isEmpty
+                ? Center(child: Text('No movies found'))
+                : ListView.builder(
+              itemCount: filteredMovies.length,
+              itemBuilder: (context, index) {
+                final movie = filteredMovies[index];
+                return Card(
+                  margin: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  child: ListTile(
+                    leading: Image.network(
+                      movie['imageUrl'],
+                      width: 50,
+                      height: 80,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) =>
+                          Container(
+                            width: 50,
+                            height: 80,
+                            color: Colors.grey.shade800,
+                            child: Icon(Icons.movie, color: Colors.white),
+                          ),
                     ),
+                    title: Text(movie['title']),
+                    subtitle: Text("Genre: ${movie['genre']}"),
+                    trailing: RatingBarIndicator(
+                      rating: movie['rating'],
+                      itemBuilder: (context, _) =>
+                          Icon(Icons.star, color: Colors.amber),
+                      itemCount: 5,
+                      itemSize: 20.0,
+                    ),
+                    onTap: () async {
+                      final updatedRating = await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => MovieDetail(
+                            movie: movie,
+                            index: index,
+                            currentRating: movie['rating'],
+                          ),
+                        ),
+                      );
+
+                      if (updatedRating != null) {
+                        updateRating(index, updatedRating);
+                      }
+                    },
                   ),
                 );
-
-                if (updatedRating != null) {
-                  updateRating(index, updatedRating);
-                }
               },
             ),
-          );
-        },
+          ),
+        ],
       ),
     );
   }
@@ -151,6 +230,13 @@ class _MovieDetailState extends State<MovieDetail> {
                     widget.movie['imageUrl'],
                     height: 250,
                     fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) =>
+                        Container(
+                          height: 250,
+                          width: double.infinity,
+                          color: Colors.grey.shade800,
+                          child: Icon(Icons.movie, size: 50, color: Colors.white),
+                        ),
                   ),
                 ),
               ),
