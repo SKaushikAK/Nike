@@ -1,178 +1,242 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:convert';
+import 'package:path/path.dart';
+import 'package:sqflite/sqflite.dart';
 
-// Entry point
-void main() {
-  runApp(const ShoppingApp());
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final database = openDatabase(
+    join(await getDatabasesPath(), 'shopping_mart.db'),
+    onCreate: (db, version) {
+      return db.execute(
+        'CREATE TABLE items(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, quantity INTEGER)',
+      );
+    },
+    version: 1,
+  );
+
+  runApp(ShoppingMartApp(database: database));
 }
 
-class ShoppingApp extends StatelessWidget {
-  const ShoppingApp({super.key});
+class ShoppingMartApp extends StatelessWidget {
+  final Future<Database> database;
+
+  ShoppingMartApp({required this.database});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Shopping App',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(primarySwatch: Colors.teal),
-      home: const ShoppingListPage(),
+      title: 'Shopping Mart',
+      theme: ThemeData(primarySwatch: Colors.blue),
+      home: ShoppingListScreen(database: database),
     );
   }
 }
 
-// Model class for shopping item (name and price)
-class CartItem {
+class ShoppingItem {
+  final int? id;
   final String name;
-  final double price;
+  final int quantity;
 
-  CartItem({required this.name, required this.price});
+  ShoppingItem({this.id, required this.name, required this.quantity});
 
   Map<String, dynamic> toMap() {
-    return {'name': name, 'price': price};
+    return {'id': id, 'name': name, 'quantity': quantity};
   }
-
-  factory CartItem.fromMap(Map<String, dynamic> map) {
-    return CartItem(name: map['name'], price: map['price']);
-  }
-}
-
-// UI Page for shopping list and cart
-class ShoppingListPage extends StatefulWidget {
-  const ShoppingListPage({super.key});
 
   @override
-  State<ShoppingListPage> createState() => _ShoppingListPageState();
+  String toString() {
+    return 'ShoppingItem{id: $id, name: $name, quantity: $quantity}';
+  }
 }
 
-class _ShoppingListPageState extends State<ShoppingListPage> {
-  final TextEditingController _nameController = TextEditingController();
-  final TextEditingController _priceController = TextEditingController();
-  List<CartItem> cartItems = [];
+class ShoppingListScreen extends StatefulWidget {
+  final Future<Database> database;
+
+  ShoppingListScreen({required this.database});
+
+  @override
+  _ShoppingListScreenState createState() => _ShoppingListScreenState();
+}
+
+class _ShoppingListScreenState extends State<ShoppingListScreen> {
+  late Future<List<ShoppingItem>> items;
 
   @override
   void initState() {
     super.initState();
-    loadCartItems();
+    refreshItems();
   }
 
-  // Load cart items from shared preferences
-  Future<void> loadCartItems() async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    String? cartData = prefs.getString('cart');
-    if (cartData != null) {
-      List<dynamic> cartList = json.decode(cartData);
-      setState(() {
-        cartItems = cartList.map((item) => CartItem.fromMap(item)).toList();
-      });
-    }
-  }
-
-  // Save cart items to shared preferences
-  Future<void> saveCartItems() async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    List<Map<String, dynamic>> cartList =
-        cartItems.map((item) => item.toMap()).toList();
-    String cartData = json.encode(cartList);
-    await prefs.setString('cart', cartData);
-  }
-
-  // Add item to cart
-  void addItemToCart() {
-    final name = _nameController.text.trim();
-    final priceText = _priceController.text.trim();
-    if (name.isEmpty || priceText.isEmpty) return;
-    final price = double.tryParse(priceText);
-    if (price == null) return; // Invalid price input
-
+  void refreshItems() {
     setState(() {
-      cartItems.add(CartItem(name: name, price: price));
+      items = getItems();
     });
-
-    _nameController.clear();
-    _priceController.clear();
-    saveCartItems();
   }
 
-  // Remove item from cart
-  void removeItemFromCart(int index) {
-    setState(() {
-      cartItems.removeAt(index);
+  Future<List<ShoppingItem>> getItems() async {
+    final db = await widget.database;
+    final List<Map<String, dynamic>> maps = await db.query('items');
+    return List.generate(maps.length, (i) {
+      return ShoppingItem(
+        id: maps[i]['id'],
+        name: maps[i]['name'],
+        quantity: maps[i]['quantity'],
+      );
     });
-    saveCartItems();
+  }
+
+  Future<void> insertItem(ShoppingItem item) async {
+    final db = await widget.database;
+    await db.insert(
+      'items',
+      item.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    refreshItems();
+  }
+
+  Future<void> updateItem(ShoppingItem item) async {
+    final db = await widget.database;
+    await db.update(
+      'items',
+      item.toMap(),
+      where: 'id = ?',
+      whereArgs: [item.id],
+    );
+    refreshItems();
+  }
+
+  Future<void> deleteItem(int id) async {
+    final db = await widget.database;
+    await db.delete(
+      'items',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    refreshItems();
+  }
+
+  void showItemDialog(BuildContext context, {ShoppingItem? item}) {
+    final _nameController = TextEditingController(text: item?.name ?? '');
+    final _quantityController =
+        TextEditingController(text: item?.quantity.toString() ?? '');
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: Text(item == null ? 'Add Item' : 'Edit Item'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: _nameController,
+                decoration: InputDecoration(labelText: 'Item Name'),
+              ),
+              TextField(
+                controller: _quantityController,
+                decoration: InputDecoration(labelText: 'Quantity'),
+                keyboardType: TextInputType.number,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                final name = _nameController.text.trim();
+                final quantity =
+                    int.tryParse(_quantityController.text.trim()) ?? 1;
+                if (name.isNotEmpty) {
+                  if (item == null) {
+                    insertItem(ShoppingItem(name: name, quantity: quantity));
+                  } else {
+                    updateItem(ShoppingItem(
+                        id: item.id, name: name, quantity: quantity));
+                  }
+                  Navigator.of(dialogContext).pop();
+                }
+              },
+              child: Text(item == null ? 'Add' : 'Update'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void showDeleteConfirmationDialog(BuildContext context, int id) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: Text('Confirm Delete'),
+          content: Text('Are you sure you want to delete this item?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                deleteItem(id);
+                Navigator.of(dialogContext).pop();
+              },
+              child: Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    double totalPrice = cartItems.fold(0, (sum, item) => sum + item.price);
-
     return Scaffold(
-      appBar: AppBar(title: const Text('Shopping Cart')),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _nameController,
-                    decoration: const InputDecoration(
-                      labelText: 'Enter item name',
-                      border: OutlineInputBorder(),
+      appBar: AppBar(
+        title: Text('Shopping Mart'),
+      ),
+      body: FutureBuilder<List<ShoppingItem>>(
+        future: items,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return Center(child: CircularProgressIndicator());
+          }
+          if (!snapshot.hasData || snapshot.data!.isEmpty) {
+            return Center(child: Text('No items added.'));
+          }
+          return ListView.builder(
+            itemCount: snapshot.data!.length,
+            itemBuilder: (context, index) {
+              final item = snapshot.data![index];
+              return ListTile(
+                title: Text(item.name),
+                subtitle: Text('Quantity: ${item.quantity}'),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: Icon(Icons.edit, color: Colors.orange),
+                      onPressed: () => showItemDialog(context, item: item),
                     ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: TextField(
-                    controller: _priceController,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'Enter price',
-                      border: OutlineInputBorder(),
+                    IconButton(
+                      icon: Icon(Icons.delete, color: Colors.red),
+                      onPressed: () =>
+                          showDeleteConfirmationDialog(context, item.id!),
                     ),
-                  ),
+                  ],
                 ),
-                const SizedBox(width: 10),
-                ElevatedButton(
-                  onPressed: addItemToCart,
-                  child: const Text('Add'),
-                ),
-              ],
-            ),
-          ),
-          const Divider(),
-          Expanded(
-            child: cartItems.isEmpty
-                ? const Center(child: Text('No items in the cart yet'))
-                : ListView.builder(
-                    itemCount: cartItems.length,
-                    itemBuilder: (context, index) {
-                      final item = cartItems[index];
-                      return ListTile(
-                        title: Text(item.name),
-                        subtitle: Text('\$${item.price.toStringAsFixed(2)}'),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.delete, color: Colors.red),
-                          onPressed: () => removeItemFromCart(index),
-                        ),
-                      );
-                    },
-                  ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(12.0),
-            child: Row(
-              children: [
-                const Text('Total Price: ', style: TextStyle(fontSize: 18)),
-                Text('\$${totalPrice.toStringAsFixed(2)}',
-                    style: const TextStyle(
-                        fontSize: 18, fontWeight: FontWeight.bold)),
-              ],
-            ),
-          ),
-        ],
+              );
+            },
+          );
+        },
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => showItemDialog(context),
+        child: Icon(Icons.add),
       ),
     );
   }
